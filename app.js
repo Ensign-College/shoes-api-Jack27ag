@@ -2,6 +2,7 @@ require("dotenv").config();
 const { createClient } = require("redis");
 const express = require("express");
 const cors = require("cors");
+const e = require("express");
 
 const redisClient = createClient({
   host: process.env.REDIS_HOST,
@@ -35,6 +36,8 @@ app.post("/watch_collections", async (req, res) => {
     if (!collections) {
       await redisClient.set(key, JSON.stringify(data));
       res.status(201).send({ message: "Collections saved successfully!" });
+    } else {
+      res.status(200).send({ message: "Collections already exist!" });
     }
   } catch (error) {
     console.error(error);
@@ -457,6 +460,271 @@ app.delete("/watch_providers/provider/:providerID", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).send({ message: "Error deleting provider!" });
+  }
+});
+
+// POST / Add stock watch to provider
+app.post(
+  "/watch_providers/provider/:providerID/stock_watch",
+  async (req, res) => {
+    const { providerID } = req.params;
+    const {
+      refNumber,
+      brand,
+      model,
+      movement,
+      description,
+      msrp,
+      appraisal,
+      acquisitionDate,
+      color,
+    } = req.body;
+    const key = "Providers";
+    try {
+      let Providers = await redisClient.get(key);
+      if (!Providers) {
+        res.status(404).send({ message: "Providers not found!" });
+        return;
+      }
+      Providers = JSON.parse(Providers);
+      const provider = Providers[`provider_${providerID}`];
+      if (!provider) {
+        res.status(404).send({ message: "Provider not found!" });
+        return;
+      }
+      if (!provider.stockWatches) {
+        provider.stockWatches = [];
+      }
+      const watchID = await redisClient.incr("watchID_counter");
+      const newWatch = {
+        watchID,
+        refNumber,
+        brand,
+        model,
+        movement,
+        description,
+        msrp,
+        appraisal,
+        acquisitionDate,
+        color,
+      };
+      provider.stockWatches.push(newWatch);
+      await redisClient.set(key, JSON.stringify(Providers));
+      res.status(201).send({ message: "Stock watch added successfully!" });
+    } catch (error) {
+      console.error(error);
+      res.status(500).send({ message: "Error adding stock watch!" });
+    }
+  }
+);
+
+// GET / Get stock watch details
+app.get(
+  "/watch_providers/provider/:providerID/stock_watch/:watchID",
+  async (req, res) => {
+    const { providerID, watchID } = req.params;
+    const key = "Providers";
+    try {
+      let Providers = await redisClient.get(key);
+      if (!Providers) {
+        res.status(404).send({ message: "Providers not found!" });
+        return;
+      }
+      Providers = JSON.parse(Providers);
+      const provider = Providers[`provider_${providerID}`];
+      if (!provider) {
+        res.status(404).send({ message: "Provider not found!" });
+      }
+      if (!provider.stockWatches) {
+        res.status(404).send({ message: "Stock watches not found!" });
+      }
+      const watch = provider.stockWatches.find(
+        (w) => w.watchID === parseInt(watchID)
+      );
+      if (!watch) {
+        res.status(404).send({ message: "Stock watch not found!" });
+      } else {
+        res.status(200).send(watch);
+      }
+    } catch (error) {
+      console.error(error);
+      res.status(500).send({ message: "Error retrieving data!" });
+    }
+  }
+);
+
+// PATCH / Update stock watch details
+app.patch(
+  "/watch_providers/provider/:providerID/stock_watch/:watchID",
+  async (req, res) => {
+    const { providerID, watchID } = req.params;
+    const updateWatch = req.body;
+    const key = "Providers";
+    try {
+      let Providers = await redisClient.get(key);
+      if (!Providers) {
+        res.status(404).send({ message: "Providers not found!" });
+        return;
+      }
+      Providers = JSON.parse(Providers);
+      const provider = Providers[`provider_${providerID}`];
+      if (!provider) {
+        res.status(404).send({ message: "Provider not found!" });
+      }
+      if (!provider.stockWatches) {
+        res.status(404).send({ message: "Stock watches not found!" });
+      }
+      const watch = provider.stockWatches.find(
+        (w) => w.watchID === parseInt(watchID)
+      );
+      if (!watch) {
+        res.status(404).send({ message: "Stock watch not found!" });
+      }
+      Object.keys(updateWatch).map((key) => {
+        if (watch.hasOwnProperty(key)) {
+          watch[key] = updateWatch[key];
+        } else {
+          res
+            .status(404)
+            .send({ message: `Stock watch does not have ${key}!` });
+        }
+      });
+      await redisClient.set(key, JSON.stringify(Providers));
+      res.status(200).send({ message: "Stock watch updated successfully!" });
+    } catch (error) {
+      console.error(error);
+      res.status(500).send({ message: "Error updating stock watch!" });
+    }
+  }
+);
+
+// DELETE / Delete stock watch from provider
+app.delete(
+  "/watch_providers/provider/:providerID/stock_watch/:watchID",
+  async (req, res) => {
+    const { providerID, watchID } = req.params;
+    const key = "Providers";
+    try {
+      let Providers = await redisClient.get(key);
+      if (!Providers) {
+        res.status(404).send({ message: "Providers not found!" });
+        return;
+      }
+      Providers = JSON.parse(Providers);
+      let provider = Providers[`provider_${providerID}`];
+      if (!provider) {
+        res.status(404).send({ message: "Provider not found!" });
+      }
+      if (!provider.stockWatches) {
+        res.status(404).send({ message: "Stock watches not found!" });
+      }
+      const watchIndex = provider.stockWatches.findIndex(
+        (w) => w.watchID === parseInt(watchID)
+      );
+      if (watchIndex === -1) {
+        res.status(404).send({ message: "Stock watch not found!" });
+        return;
+      }
+      provider.stockWatches.splice(watchIndex, 1);
+      await redisClient.set(key, JSON.stringify(Providers));
+      res.status(200).send({ message: "Stock watch deleted successfully!" });
+    } catch (error) {
+      console.error(error);
+      res.status(500).send({ message: "Error deliting stock watch!" });
+    }
+  }
+);
+
+// POST / Create Transactions
+app.post("/watch_transactions", async (req, res) => {
+  const key = "Transactions";
+  const data = {};
+
+  try {
+    const transactions = await redisClient.get(key);
+    if (!transactions) {
+      await redisClient.set(key, JSON.stringify(data));
+      res.status(201).send({ message: "Transactions saved successfully!" });
+    } else {
+      res.status(200).send({ message: "Transactions already exist!" });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Error saving Transactions!" });
+  }
+});
+
+// GET /transactions
+app.get("/watch_transactions", async (req, res) => {
+  try {
+    const Transactions = await redisClient.get("Transactions");
+    if (!Transactions) {
+      res.status(404).send({ message: "Transactions not found!" });
+    } else {
+      res.status(200).send({ Transactions: JSON.parse(Transactions) });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Error retrieving data!" });
+  }
+});
+
+// POST /watch_collections/transaction
+app.post("/watch_collections/transaction", async (req, res) => {
+  const { sellerCollectionID, buyerCollectionID, watchID } = req.body;
+
+  try {
+    let Collections = await redisClient.get("Collections");
+    if (!Collections) {
+      res.status(404).send({ message: "Collections not found!" });
+      return;
+    }
+    Collections = JSON.parse(Collections);
+
+    const sellerCollection = Collections[`collectionID_${sellerCollectionID}`];
+    if (!sellerCollection) {
+      res.status(404).send({ message: "Seller's collection not found!" });
+      return;
+    }
+    const watch = sellerCollection.watches.find(
+      (w) => w.watchID === parseInt(watchID)
+    );
+    if (!watch) {
+      res
+        .status(404)
+        .send({ message: "Watch not found in seller's collection!" });
+      return;
+    }
+    const buyerCollection = Collections[`collectionID_${buyerCollectionID}`];
+    if (!buyerCollection) {
+      res.status(404).send({ message: "Buyer's collection not found!" });
+      return;
+    }
+    buyerCollection.watches.push(watch);
+
+    const watchIndex = sellerCollection.watches.findIndex(
+      (w) => w.watchID === parseInt(watchID)
+    );
+    sellerCollection.watches.splice(watchIndex, 1);
+
+    await redisClient.set("Collections", JSON.stringify(Collections));
+    const transaction = {
+      sellerCollectionID,
+      buyerCollectionID,
+      watchID,
+    };
+    let Transactions = await redisClient.get("Transactions");
+    if (!Transactions) {
+      Transactions = {};
+    } else {
+      Transactions = JSON.parse(Transactions);
+    }
+    Transactions[`transactionID_${watchID}`] = transaction;
+    await redisClient.set("Transactions", JSON.stringify(Transactions));
+    res.status(201).send({ message: "Transaction completed successfully!" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Error completing transaction!" });
   }
 });
 
